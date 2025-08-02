@@ -1,0 +1,28 @@
+# Core dependencies for Streamlit app
+streamlit>=1.28.0
+requests>=2.31.0
+pandas>=2.0.0
+python-dotenv>=1.0.0
+
+# AI/ML dependencies for search functionality
+sentence-transformers>=2.3.0
+faiss-cpu>=1.8.0
+numpy>=1.26.0
+scikit-learn>=1.4.0
+
+# Web scraping and search dependencies
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+langdetect>=1.0.9
+
+# Additional utility dependencies
+urllib3>=2.0.0
+certifi>=2023.0.0
+charset-normalizer>=3.0.0
+idna>=3.4
+
+# Google Generative AI for RAG functionality
+google-generativeai>=0.3.0
+
+# Note: Google ADK is required but not available via pip
+# Install manually or use alternative multi-agent framework
