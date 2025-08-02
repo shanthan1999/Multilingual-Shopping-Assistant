@@ -17,19 +17,28 @@ class RAGShoppingSearch:
     """
     
     def __init__(self):
-        # Initialize Gemini API
+        # Initialize APIs with graceful fallback
         self.gemini_api_key = os.getenv('GOOGLE_API_KEY')
-        if not self.gemini_api_key:
-            raise ValueError("GOOGLE_API_KEY not found in environment variables")
-        
-        # Initialize Serper API
         self.serper_api_key = os.getenv('SERPER_API_KEY')
-        if not self.serper_api_key:
-            raise ValueError("SERPER_API_KEY not found in environment variables")
         
-        # Configure Gemini
-        genai.configure(api_key=self.gemini_api_key)
-        self.model = genai.GenerativeModel('gemini-1.5-flash')
+        # Check if we have the required API keys
+        self.has_gemini = bool(self.gemini_api_key)
+        self.has_serper = bool(self.serper_api_key)
+        
+        # Configure Gemini if API key is available
+        if self.has_gemini:
+            try:
+                genai.configure(api_key=self.gemini_api_key)
+                self.model = genai.GenerativeModel('gemini-1.5-flash')
+            except Exception as e:
+                print(f"Warning: Failed to configure Gemini: {e}")
+                self.has_gemini = False
+        else:
+            self.model = None
+            print("Warning: GOOGLE_API_KEY not found. AI features will be limited.")
+        
+        if not self.has_serper:
+            print("Warning: SERPER_API_KEY not found. Web search features will be limited.")
         
         # Common Hindi to English mappings for shopping terms
         self.hindi_english_mappings = {

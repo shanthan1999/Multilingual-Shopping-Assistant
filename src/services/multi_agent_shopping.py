@@ -20,18 +20,28 @@ class MultiAgentShoppingSearch:
     """
     
     def __init__(self):
-        # Initialize APIs
+        # Initialize APIs with graceful fallback
         self.gemini_api_key = os.getenv('GOOGLE_API_KEY')
-        if not self.gemini_api_key:
-            raise ValueError("GOOGLE_API_KEY not found in environment variables")
-        
         self.serper_api_key = os.getenv('SERPER_API_KEY')
-        if not self.serper_api_key:
-            raise ValueError("SERPER_API_KEY not found in environment variables")
         
-        # Configure Gemini
-        genai.configure(api_key=self.gemini_api_key)
-        self.model = genai.GenerativeModel('gemini-1.5-flash')
+        # Check if we have the required API keys
+        self.has_gemini = bool(self.gemini_api_key)
+        self.has_serper = bool(self.serper_api_key)
+        
+        # Configure Gemini if API key is available
+        if self.has_gemini:
+            try:
+                genai.configure(api_key=self.gemini_api_key)
+                self.model = genai.GenerativeModel('gemini-1.5-flash')
+            except Exception as e:
+                print(f"Warning: Failed to configure Gemini: {e}")
+                self.has_gemini = False
+        else:
+            self.model = None
+            print("Warning: GOOGLE_API_KEY not found. AI features will be limited.")
+        
+        if not self.has_serper:
+            print("Warning: SERPER_API_KEY not found. Web search features will be limited.")
         
         # Hindi-English mappings
         self.hindi_english_mappings = {
@@ -124,10 +134,21 @@ class MultiAgentShoppingSearch:
                 query = translated_query
             
             # Get search results
-            search_results = self._serper_search(query, limit)
+            if self.has_serper:
+                search_results = self._serper_search(query, limit)
+            else:
+                # Provide demo data when Serper API is not available
+                search_results = self._get_demo_search_results(query, limit)
+                st.warning("⚠️ Demo Mode: Using sample data. Add SERPER_API_KEY for real search results.")
             
-            # Use multi-agent system
-            ai_response = self._generate_multi_agent_response(query, search_results)
+            # Generate AI response if Gemini is available
+            if self.has_gemini and self.model:
+                try:
+                    ai_response = self._generate_multi_agent_response(query, search_results)
+                except Exception as e:
+                    ai_response = self._generate_simple_analysis(query, search_results)
+            else:
+                ai_response = f"🤖 Found {len(search_results)} products for '{query}'. Add GOOGLE_API_KEY for AI-powered analysis."
             
             # Format results
             formatted_results = self._format_results(search_results, query)
@@ -140,7 +161,14 @@ class MultiAgentShoppingSearch:
             }
             
         except Exception as e:
-            raise Exception(f"Multi-agent search failed: {e}")
+            # Return demo data as fallback
+            demo_results = self._get_demo_search_results(query, limit)
+            return {
+                'products': self._format_results(demo_results, query),
+                'ai_response': f"🤖 Demo Mode: Found {len(demo_results)} sample products for '{query}'. Configure API keys for full functionality.",
+                'original_query': query,
+                'is_hindi': is_hindi
+            }
     
     def _generate_multi_agent_response(self, query: str, search_results: List[Dict]) -> str:
         """Generate response using multi-agent system"""
@@ -301,6 +329,44 @@ class MultiAgentShoppingSearch:
         except Exception:
             return "Unknown Store"
     
+    def _extract_image_url(self, result: Dict) -> str:
+        """Extract product image URL from search result"""
+        try:
+            # Check if there's a thumbnail in the result
+            if 'thumbnail' in result:
+                return result['thumbnail']
+            
+            # Try to extract from rich snippets or structured data
+            if 'rich_snippet' in result and 'top' in result['rich_snippet']:
+                rich_data = result['rich_snippet']['top']
+                if 'detected_extensions' in rich_data:
+                    extensions = rich_data['detected_extensions']
+                    for ext in extensions:
+                        if 'image' in ext.lower() or 'photo' in ext.lower():
+                            return ext
+            
+            # Generate a placeholder image based on the domain
+            domain = self._extract_domain(result.get('link', ''))
+            
+            # Use domain-specific logic for common e-commerce sites
+            if 'amazon' in domain.lower():
+                return "https://via.placeholder.com/150x150/FF9900/FFFFFF?text=Amazon"
+            elif 'flipkart' in domain.lower():
+                return "https://via.placeholder.com/150x150/047BD6/FFFFFF?text=Flipkart"
+            elif 'myntra' in domain.lower():
+                return "https://via.placeholder.com/150x150/FF3F6C/FFFFFF?text=Myntra"
+            elif 'bigbasket' in domain.lower():
+                return "https://via.placeholder.com/150x150/84C225/FFFFFF?text=BigBasket"
+            elif 'zepto' in domain.lower():
+                return "https://via.placeholder.com/150x150/6C5CE7/FFFFFF?text=Zepto"
+            elif 'blinkit' in domain.lower():
+                return "https://via.placeholder.com/150x150/F39C12/FFFFFF?text=Blinkit"
+            else:
+                return "https://via.placeholder.com/150x150/667eea/FFFFFF?text=Product"
+                
+        except Exception:
+            return "https://via.placeholder.com/150x150/667eea/FFFFFF?text=Product"
+    
     def _format_results(self, results: List[Dict], original_query: str) -> List[Dict]:
         """Format search results for display"""
         formatted_results = []
@@ -312,6 +378,7 @@ class MultiAgentShoppingSearch:
                 'url': result.get('link', ''),
                 'source': self._extract_domain(result.get('link', '')),
                 'price': self._extract_price(result.get('snippet', '')),
+                'image': self._extract_image_url(result),
                 'score': self._calculate_relevance_score(result, original_query)
             }
             formatted_results.append(formatted_result)
@@ -398,4 +465,48 @@ class MultiAgentShoppingSearch:
         except Exception as e:
             raise Exception(f"Failed to fetch trending queries: {e}")
     
+    def _get_demo_search_results(self, query: str, limit: int) -> List[Dict]:
+        """Generate demo search results for demonstration purposes"""
+        demo_results = [
+            {
+                "title": "Demo Product 1",
+                "snippet": "This is a description for Demo Product 1. It's a great product for demonstration.",
+                "link": "https://example.com/product1",
+                "rich_snippet": {
+                    "top": {
+                        "detected_extensions": [
+                            {"image": "https://via.placeholder.com/150x150/FF9900/FFFFFF?text=Demo1"},
+                            {"image": "https://via.placeholder.com/150x150/047BD6/FFFFFF?text=Demo1"}
+                        ]
+                    }
+                }
+            },
+            {
+                "title": "Demo Product 2",
+                "snippet": "This is a description for Demo Product 2. It's a great product for demonstration.",
+                "link": "https://example.com/product2",
+                "rich_snippet": {
+                    "top": {
+                        "detected_extensions": [
+                            {"image": "https://via.placeholder.com/150x150/FF3F6C/FFFFFF?text=Demo2"},
+                            {"image": "https://via.placeholder.com/150x150/84C225/FFFFFF?text=Demo2"}
+                        ]
+                    }
+                }
+            },
+            {
+                "title": "Demo Product 3",
+                "snippet": "This is a description for Demo Product 3. It's a great product for demonstration.",
+                "link": "https://example.com/product3",
+                "rich_snippet": {
+                    "top": {
+                        "detected_extensions": [
+                            {"image": "https://via.placeholder.com/150x150/6C5CE7/FFFFFF?text=Demo3"},
+                            {"image": "https://via.placeholder.com/150x150/F39C12/FFFFFF?text=Demo3"}
+                        ]
+                    }
+                }
+            }
+        ]
+        return demo_results[:limit]
  

@@ -14,6 +14,7 @@ An advanced agentic RAG-powered shopping application built with Streamlit that h
 - 🛒 **Direct Purchase Links**: Click to buy products directly from stores
 - 📱 **Responsive Design**: Works on desktop and mobile devices
 - 💡 **Smart Suggestions**: Get search suggestions as you type
+- 🎯 **Demo Mode**: Works without API keys for testing and demonstration
 
 ### Multi-Agent System Components
 
@@ -37,7 +38,7 @@ An advanced agentic RAG-powered shopping application built with Streamlit that h
 1. **Clone the repository**
    ```bash
    git clone <repository-url>
-   cd regional-shopping-ai
+   cd multiagent-shopping-assistant
    ```
 
 2. **Install dependencies**
@@ -45,11 +46,11 @@ An advanced agentic RAG-powered shopping application built with Streamlit that h
    pip install -r requirements.txt
    ```
 
-3. **Set up environment variables**
+3. **Set up environment variables (Optional)**
    ```bash
-   # Create a .env file with your API keys
+   # Copy the example environment file
    cp .env.example .env
-   # Edit .env and add your Tavily API key
+   # Edit .env and add your API keys for full functionality
    ```
 
 4. **Run the application**
@@ -87,6 +88,23 @@ GOOGLE_API_KEY=your_google_api_key_here
 2. **Sign In**: Use your Google account
 3. **Create API Key**: Click "Create API Key" and copy the key
 4. **Update .env**: Replace `your_google_api_key_here` with your actual API key
+
+## Demo Mode
+
+The application can run in **Demo Mode** without any API keys:
+
+- ✅ **Works immediately** without configuration
+- ✅ **Sample data** for testing and demonstration
+- ✅ **Hindi translation** still works
+- ✅ **Shopping list** functionality
+- ✅ **UI/UX** features
+
+**Demo Mode Limitations:**
+- ❌ No real web search results
+- ❌ No AI-powered analysis
+- ❌ Limited product data
+
+To enable full functionality, add your API keys to the `.env` file.
 
 ## Usage
 

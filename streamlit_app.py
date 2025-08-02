@@ -7,6 +7,7 @@ import time
 import os
 import sys
 import hashlib
+import re # Added for price extraction
 
 # Add the src directory to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
@@ -14,6 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 # Import the services directly
 try:
     from src.services.multi_agent_shopping import MultiAgentShoppingSearch
+    from src.services.product_comparison import ProductComparisonService
 except ImportError as e:
     st.error(f"Import error: {e}")
     st.stop()
@@ -24,9 +26,19 @@ def init_services():
     """Initialize services"""
     try:
         multi_agent_service = MultiAgentShoppingSearch()
-        return multi_agent_service
+        comparison_service = ProductComparisonService()
+        return multi_agent_service, comparison_service
     except Exception as e:
-        st.error(f"Failed to initialize Multi-Agent shopping service: {e}")
+        st.error(f"⚠️ Service initialization issue: {e}")
+        st.info("💡 To enable full functionality, please configure your API keys in the .env file:")
+        st.code("""
+# Add your API keys to .env file:
+GOOGLE_API_KEY=your_google_api_key_here
+SERPER_API_KEY=your_serper_api_key_here
+        """)
+        st.info("🔗 Get API keys from:")
+        st.markdown("- [Google AI Studio](https://makersuite.google.com/app/apikey) for Gemini AI")
+        st.markdown("- [Serper.dev](https://serper.dev/) for web search")
         st.stop()
 
 # Page configuration
@@ -162,19 +174,33 @@ def main():
     """, unsafe_allow_html=True)
     
     # Initialize services
-    multi_agent_service = init_services()
+    try:
+        multi_agent_service, comparison_service = init_services()
+        
+        # Show API key status
+        if not multi_agent_service.has_gemini or not multi_agent_service.has_serper:
+            st.warning("⚠️ Demo Mode: Some features are limited. Configure API keys for full functionality.")
+            if not multi_agent_service.has_gemini:
+                st.info("🔑 Add GOOGLE_API_KEY for AI-powered analysis")
+            if not multi_agent_service.has_serper:
+                st.info("🔑 Add SERPER_API_KEY for real web search results")
+        
+    except Exception as e:
+        st.error(f"❌ Failed to initialize services: {e}")
+        st.info("💡 Please check your API keys in the .env file")
+        return
     
     # Main tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["🔍 Product Search", "🔗 Link Analysis", "📊 Compare Products", "🌐 Language Help"])
+    tab1, tab2, tab3, tab4 = st.tabs(["🔍 Product Search", "🛒 Shopping List", "📊 Provider Comparison", "🌐 Language Help"])
     
     with tab1:
         show_product_search(multi_agent_service)
     
     with tab2:
-        show_link_analysis(multi_agent_service)
+        show_shopping_list()
     
     with tab3:
-        show_product_comparison(multi_agent_service)
+        show_provider_comparison(comparison_service)
     
     with tab4:
         show_language_help()
@@ -259,20 +285,28 @@ def show_product_search(multi_agent_service):
                         <div class="product-card">
                         """, unsafe_allow_html=True)
                         
-                        col1, col2, col3 = st.columns([3, 1, 1])
+                        col1, col2, col3, col4 = st.columns([1, 3, 1, 1])
                         
                         with col1:
-                            st.markdown(f"**{product.get('title', 'Product')[:80]}**")
+                            # Product image
+                            image_url = product.get('image', 'https://via.placeholder.com/150x150/667eea/FFFFFF?text=Product')
+                            try:
+                                st.image(image_url, width=100)
+                            except:
+                                st.image('https://via.placeholder.com/150x150/667eea/FFFFFF?text=Product', width=100)
+                        
+                        with col2:
+                            st.markdown(f"**{product.get('title', 'Product')[:60]}**")
                             description = product.get('description', 'No description available')
-                            if len(description) > 120:
-                                description = description[:120] + "..."
+                            if len(description) > 100:
+                                description = description[:100] + "..."
                             st.write(description)
                             
                             # Source info
                             source = product.get('source', 'Unknown Store')
                             st.caption(f"📍 {source}")
                         
-                        with col2:
+                        with col3:
                             price = product.get('price', 'Price not available')
                             st.markdown(f'<div class="price-tag">{price}</div>', unsafe_allow_html=True)
                             
@@ -280,7 +314,7 @@ def show_product_search(multi_agent_service):
                             score = product.get('score', 0)
                             st.caption(f"⭐ {score:.1f}/10")
                         
-                        with col3:
+                        with col4:
                             # Buy button
                             if product.get('url'):
                                 st.link_button("🛒 Buy Now", product['url'], use_container_width=True)
@@ -297,227 +331,15 @@ def show_product_search(multi_agent_service):
                     st.warning("No products found. Try different keywords.")
                     
             except Exception as e:
-                st.error(f"Search failed: {e}")
-                st.stop()
+                st.error(f"❌ Search failed: {e}")
+                st.info("💡 This might be due to:")
+                st.markdown("- Missing or invalid API keys")
+                st.markdown("- Network connectivity issues")
+                st.markdown("- Rate limiting from search providers")
+                st.info("🔄 Try again or check your API configuration")
+                return
 
-def show_link_analysis(multi_agent_service):
-    """Display link analysis interface"""
-    st.header("🔗 Product Link Analysis")
-    st.caption("Analyze product links and extract detailed information")
-    
-    # Link input
-    col1, col2 = st.columns([4, 1])
-    with col1:
-        product_link = st.text_input(
-            "Product Link",
-            placeholder="Paste a product link from Amazon, Flipkart, etc.",
-            label_visibility="collapsed"
-        )
-    with col2:
-        if st.button("🔍 Analyze", use_container_width=True):
-            if product_link:
-                analyze_product_link(multi_agent_service, product_link)
-            else:
-                st.warning("Please enter a product link")
 
-def show_product_comparison(multi_agent_service):
-    """Display product comparison interface"""
-    st.header("📊 Product Comparison")
-    st.caption("Compare multiple products side by side")
-    
-    # Product links input
-    st.subheader("Enter Product Links")
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        link1 = st.text_input("Product 1 Link", placeholder="First product link")
-    with col2:
-        link2 = st.text_input("Product 2 Link", placeholder="Second product link")
-    
-    # Additional links
-    col3, col4 = st.columns(2)
-    with col3:
-        link3 = st.text_input("Product 3 Link", placeholder="Third product link (optional)")
-    with col4:
-        link4 = st.text_input("Product 4 Link", placeholder="Fourth product link (optional)")
-    
-    if st.button("📊 Compare Products", use_container_width=True):
-        links = [link for link in [link1, link2, link3, link4] if link.strip()]
-        if len(links) >= 2:
-            compare_products(multi_agent_service, links)
-        else:
-            st.warning("Please enter at least 2 product links")
-
-def analyze_product_link(multi_agent_service, link):
-    """Analyze a single product link"""
-    with st.spinner("🔍 Analyzing product link..."):
-        try:
-            # Extract product info from link
-            product_info = extract_product_from_link(link)
-            
-            if product_info:
-                st.success("✅ Product link analyzed successfully!")
-                
-                # Display product information
-                col1, col2 = st.columns([2, 1])
-                with col1:
-                    st.markdown(f"**Product:** {product_info.get('title', 'Unknown')}")
-                    st.markdown(f"**Store:** {product_info.get('store', 'Unknown')}")
-                    st.markdown(f"**Price:** {product_info.get('price', 'Not available')}")
-                
-                with col2:
-                    if product_info.get('image'):
-                        st.image(product_info['image'], width=150)
-                
-                # Get AI analysis
-                analysis = get_product_analysis(multi_agent_service, product_info)
-                st.markdown("### 🤖 AI Analysis")
-                st.write(analysis)
-                
-            else:
-                st.error("❌ Could not extract product information from the link")
-                
-        except Exception as e:
-            st.error(f"Link analysis failed: {e}")
-            st.stop()
-
-def compare_products(multi_agent_service, links):
-    """Compare multiple products"""
-    with st.spinner("📊 Comparing products..."):
-        try:
-            products = []
-            for i, link in enumerate(links):
-                product_info = extract_product_from_link(link)
-                if product_info:
-                    products.append(product_info)
-            
-            if len(products) >= 2:
-                st.success(f"✅ Successfully analyzed {len(products)} products!")
-                
-                # Display comparison table
-                st.markdown("### 📊 Product Comparison")
-                comparison_data = []
-                for product in products:
-                    comparison_data.append({
-                        'Product': product.get('title', 'Unknown')[:50] + '...',
-                        'Store': product.get('store', 'Unknown'),
-                        'Price': product.get('price', 'N/A'),
-                        'Rating': product.get('rating', 'N/A'),
-                        'Availability': product.get('availability', 'Unknown')
-                    })
-                
-                df = pd.DataFrame(comparison_data)
-                st.dataframe(df, use_container_width=True)
-                
-                # Get AI comparison analysis
-                comparison_analysis = get_comparison_analysis(multi_agent_service, products)
-                st.markdown("### 🤖 AI Comparison Analysis")
-                st.write(comparison_analysis)
-                
-            else:
-                st.error("❌ Could not analyze enough products for comparison")
-                
-        except Exception as e:
-            st.error(f"Product comparison failed: {e}")
-            st.stop()
-
-def extract_product_from_link(link):
-    """Extract product information from a link"""
-    try:
-        from src.services.link_analysis_models import get_platform_from_url, validate_url
-        
-        if not validate_url(link):
-            raise ValueError("Invalid URL format")
-        
-        platform = get_platform_from_url(link)
-        
-        # Use actual web scraping to extract product information
-        import requests
-        from bs4 import BeautifulSoup
-        from urllib.parse import urlparse
-        
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        
-        response = requests.get(link, headers=headers, timeout=10)
-        response.raise_for_status()
-        
-        soup = BeautifulSoup(response.content, 'html.parser')
-        
-        # Extract basic information
-        title = soup.find('title').get_text().strip() if soup.find('title') else 'Product'
-        
-        # Extract domain for store name
-        parsed = urlparse(link)
-        domain = parsed.netloc.replace('www.', '')
-        
-        return {
-            'title': title,
-            'store': domain,
-            'price': 'Check website',
-            'rating': 'Not available',
-            'availability': 'Check website',
-            'image': None
-        }
-        
-    except Exception as e:
-        raise Exception(f"Failed to extract product information: {e}")
-
-def get_product_analysis(multi_agent_service, product_info):
-    """Get AI analysis for a single product"""
-    prompt = f"""
-    Analyze this product information and provide insights:
-    
-    Product: {product_info.get('title', 'Unknown')}
-    Store: {product_info.get('store', 'Unknown')}
-    Price: {product_info.get('price', 'Not available')}
-    Rating: {product_info.get('rating', 'Not available')}
-    Availability: {product_info.get('availability', 'Unknown')}
-    
-    Please provide:
-    1. Price analysis and value assessment
-    2. Store reputation and reliability
-    3. Product quality indicators
-    4. Shopping recommendations
-    5. Alternative suggestions
-    
-    Format with emojis and clear sections.
-    """
-    
-    response = multi_agent_service.model.generate_content(prompt)
-    return response.text
-
-def get_comparison_analysis(multi_agent_service, products):
-    """Get AI analysis for product comparison"""
-    products_text = ""
-    for i, product in enumerate(products, 1):
-        products_text += f"""
-        Product {i}:
-        - Name: {product.get('title', 'Unknown')}
-        - Store: {product.get('store', 'Unknown')}
-        - Price: {product.get('price', 'Not available')}
-        - Rating: {product.get('rating', 'Not available')}
-        - Availability: {product.get('availability', 'Unknown')}
-        """
-    
-    prompt = f"""
-    Compare these products and provide analysis:
-    
-    {products_text}
-    
-    Please provide:
-    1. Price comparison and best value
-    2. Quality comparison based on ratings
-    3. Store comparison and reliability
-    4. Overall recommendation
-    5. Pros and cons for each option
-    
-    Format with emojis and clear comparison table.
-    """
-    
-    response = multi_agent_service.model.generate_content(prompt)
-    return response.text
 
 def show_shopping_list():
     """Display the shopping list interface"""
@@ -541,33 +363,59 @@ def show_shopping_list():
         
         # Display list items
         for i, item in enumerate(st.session_state.shopping_list):
-            with st.container():
-                col1, col2, col3 = st.columns([3, 1, 1])
+            st.markdown("""
+            <div class="product-card">
+            """, unsafe_allow_html=True)
+            
+            col1, col2, col3, col4 = st.columns([1, 3, 1, 1])
+            
+            with col1:
+                # Product image
+                image_url = item.get('image', 'https://via.placeholder.com/150x150/667eea/FFFFFF?text=Product')
+                try:
+                    st.image(image_url, width=100)
+                except:
+                    st.image('https://via.placeholder.com/150x150/667eea/FFFFFF?text=Product', width=100)
+            
+            with col2:
+                st.markdown(f"**{item['title'][:60]}**")
+                description = item.get('description', 'No description available')
+                if len(description) > 80:
+                    description = description[:80] + "..."
+                st.write(description)
+                st.caption(f"📍 {item['source']}")
                 
-                with col1:
-                    st.markdown(f"**{item['title'][:60]}**")
-                    st.caption(f"📍 {item['source']}")
+                # Added date
+                if item.get('added_at'):
+                    try:
+                        added_date = datetime.fromisoformat(item['added_at']).strftime('%Y-%m-%d %H:%M')
+                        st.caption(f"🕒 Added: {added_date}")
+                    except:
+                        pass
+            
+            with col3:
+                st.markdown(f'<div class="price-tag">{item["price"]}</div>', unsafe_allow_html=True)
+            
+            with col4:
+                # Buy button
+                if item.get('url') and item['url'].strip():
+                    st.link_button("🛒 Buy Now", item['url'], use_container_width=True)
+                else:
+                    st.write("🔗 No link")
                 
-                with col2:
-                    st.markdown(f'<div class="price-tag">{item["price"]}</div>', unsafe_allow_html=True)
-                
-                with col3:
-                    col_a, col_b = st.columns(2)
-                    with col_a:
-                        if item.get('url'):
-                            st.link_button("🛒", item['url'], help="Buy Now")
-                    with col_b:
-                        if st.button("🗑️", key=f"remove_{i}", help="Remove"):
-                            st.session_state.shopping_list.pop(i)
-                            st.rerun()
-                
-                st.divider()
+                # Remove button
+                if st.button("🗑️ Remove", key=f"remove_{i}", use_container_width=True):
+                    st.session_state.shopping_list.pop(i)
+                    st.success("Item removed!")
+                    st.rerun()
+            
+            st.markdown("</div>", unsafe_allow_html=True)
     else:
         st.info("Your shopping list is empty. Search for products to add items!")
         
         # Quick search suggestions from service
         st.subheader("💡 Quick Search Ideas")
-        multi_agent_service = init_services()
+        multi_agent_service, _ = init_services()
         if multi_agent_service:
             suggestions = multi_agent_service.get_popular_queries()[:6]
             
@@ -583,15 +431,17 @@ def add_to_shopping_list(product):
     """Add product to shopping list"""
     # Check if already in list
     for item in st.session_state.shopping_list:
-        if item.get('url') == product.get('url'):
+        if item.get('url') == product.get('url') and item.get('title') == product.get('title'):
             return  # Already in list
     
     # Add to list
     list_item = {
         'title': product.get('title', 'Product'),
+        'description': product.get('description', 'No description available'),
         'price': product.get('price', 'N/A'),
         'url': product.get('url', ''),
         'source': product.get('source', 'Unknown'),
+        'image': product.get('image', 'https://via.placeholder.com/150x150/667eea/FFFFFF?text=Product'),
         'added_at': datetime.now().isoformat()
     }
     
@@ -609,10 +459,18 @@ def export_shopping_list():
     
     for i, item in enumerate(st.session_state.shopping_list, 1):
         export_text += f"{i}. {item['title']}\n"
+        if item.get('description'):
+            export_text += f"   📝 Description: {item['description'][:100]}...\n"
         export_text += f"   💰 Price: {item['price']}\n"
         export_text += f"   🏪 Store: {item['source']}\n"
-        if item.get('url'):
+        if item.get('url') and item['url'].strip():
             export_text += f"   🔗 Link: {item['url']}\n"
+        if item.get('added_at'):
+            try:
+                added_date = datetime.fromisoformat(item['added_at']).strftime('%Y-%m-%d %H:%M')
+                export_text += f"   🕒 Added: {added_date}\n"
+            except:
+                pass
         export_text += "\n"
     
     export_text += f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
@@ -625,13 +483,175 @@ def export_shopping_list():
         mime="text/plain"
     )
 
+def show_provider_comparison(comparison_service):
+    """Display the provider comparison interface"""
+    st.header("📊 Compare Product Across Providers")
+    st.caption("Compare prices, availability, and delivery options across major Indian e-commerce platforms")
+    
+    # Sample products for comparison
+    sample_products = [
+        "tomato", "onion", "potato", "milk", "bread", "rice", "apple", "banana",
+        "tomatoes", "onions", "potatoes", "fresh milk", "white bread", "basmati rice"
+    ]
+    
+    # Product input
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        product_name = st.text_input(
+            "Enter product name to compare",
+            placeholder="e.g., tomato, milk, bread, rice",
+            label_visibility="collapsed"
+        )
+    with col2:
+        if st.button("🔍 Compare", use_container_width=True):
+            if product_name:
+                st.session_state.comparison_product = product_name
+                st.rerun()
+    
+    # Show sample products
+    st.subheader("💡 Try these products:")
+    cols = st.columns(4)
+    for i, product in enumerate(sample_products):
+        with cols[i % 4]:
+            if st.button(product.title(), key=f"compare_{i}", use_container_width=True):
+                st.session_state.comparison_product = product
+                st.rerun()
+    
+    # Perform comparison if product is selected
+    if st.session_state.get('comparison_product'):
+        product_name = st.session_state.comparison_product
+        
+        with st.spinner(f"🔍 Comparing {product_name} across providers..."):
+            try:
+                comparison_results = comparison_service.compare_product_across_providers(product_name)
+                
+                if 'error' in comparison_results:
+                    st.error(f"❌ Comparison failed: {comparison_results['error']}")
+                    return
+                
+                # Display summary
+                summary = comparison_results['summary']
+                st.success(f"✅ Found {product_name} on {summary['available_providers']} out of {summary['total_providers']} providers")
+                
+                # Summary cards
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    if summary['best_price']:
+                        st.metric("🏆 Best Price", summary['best_price'], summary['best_provider'])
+                    else:
+                        st.metric("🏆 Best Price", "Not available")
+                
+                with col2:
+                    if summary['fastest_delivery']:
+                        st.metric("⚡ Fastest Delivery", summary['fastest_delivery'], summary['fastest_provider'])
+                    else:
+                        st.metric("⚡ Fastest Delivery", "Not available")
+                
+                with col3:
+                    st.metric("📦 Available On", f"{summary['available_providers']} providers")
+                
+                st.divider()
+                
+                # Display analysis
+                if comparison_results.get('analysis'):
+                    st.markdown("### 🤖 AI Analysis")
+                    st.write(comparison_results['analysis'])
+                    st.divider()
+                
+                # Display provider results
+                st.markdown("### 🏪 Provider Comparison")
+                
+                providers = comparison_results['providers']
+                for provider_key, provider_data in providers.items():
+                    provider_info = provider_data['provider_info']
+                    
+                    with st.expander(f"🏪 {provider_info['name']}", expanded=True):
+                        if provider_data.get('availability'):
+                            best_deal = provider_data.get('best_deal')
+                            if best_deal:
+                                col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+                                
+                                with col1:
+                                    st.markdown(f"**{best_deal['title']}**")
+                                    st.caption(best_deal.get('snippet', 'No description'))
+                                
+                                with col2:
+                                    st.markdown(f"**{best_deal['price']}**")
+                                
+                                with col3:
+                                    if best_deal.get('rating'):
+                                        st.markdown(f"⭐ {best_deal['rating']}")
+                                    else:
+                                        st.markdown("⭐ N/A")
+                                
+                                with col4:
+                                    st.markdown(f"🚚 {best_deal.get('delivery', 'Standard')}")
+                                
+                                # Buy button
+                                if best_deal.get('url'):
+                                    st.link_button("🛒 Buy Now", best_deal['url'], use_container_width=True)
+                            
+                            # Show all products from this provider
+                            if len(provider_data['products']) > 1:
+                                st.markdown("**Other options:**")
+                                for i, product in enumerate(provider_data['products'][1:3]):  # Show up to 2 more options
+                                    col1, col2, col3 = st.columns([2, 1, 1])
+                                    with col1:
+                                        st.write(f"• {product['title'][:50]}...")
+                                    with col2:
+                                        st.write(product['price'])
+                                    with col3:
+                                        if product.get('rating'):
+                                            st.write(f"⭐ {product['rating']}")
+                        else:
+                            st.warning("❌ Product not available on this provider")
+                            if provider_data.get('error'):
+                                st.caption(f"Error: {provider_data['error']}")
+                
+                # Add to shopping list button
+                if st.button("➕ Add Best Deal to Shopping List", use_container_width=True):
+                    best_provider = None
+                    best_price = float('inf')
+                    
+                    for provider_key, provider_data in providers.items():
+                        if provider_data.get('availability'):
+                            best_deal = provider_data.get('best_deal')
+                            if best_deal and best_deal.get('price'):
+                                price_str = best_deal['price']
+                                price_num = float(re.findall(r'₹(\d+)', price_str)[0]) if re.findall(r'₹(\d+)', price_str) else 999
+                                if price_num < best_price:
+                                    best_price = price_num
+                                    best_provider = provider_data
+                    
+                    if best_provider:
+                        best_deal = best_provider['best_deal']
+                        add_to_shopping_list({
+                            'title': best_deal['title'],
+                            'description': best_deal.get('snippet', 'Best deal from comparison'),
+                            'price': best_deal['price'],
+                            'url': best_deal.get('url', ''),
+                            'source': best_provider['provider_info']['name'],
+                            'image': 'https://via.placeholder.com/150x150/667eea/FFFFFF?text=Best'
+                        })
+                        st.success("✅ Added best deal to shopping list!")
+                        time.sleep(0.5)
+                        st.rerun()
+                
+            except Exception as e:
+                st.error(f"❌ Comparison failed: {e}")
+                st.info("💡 This might be due to:")
+                st.markdown("- Network connectivity issues")
+                st.markdown("- Rate limiting from search providers")
+                st.markdown("- Product not available on any provider")
+                st.info("🔄 Try again with a different product")
+
 def show_language_help():
     """Display language help and examples"""
     st.header("🌐 Language Support")
     st.write("This app supports both Hindi and English queries for shopping searches.")
     
     # Get language mappings from the service
-    multi_agent_service = init_services()
+    multi_agent_service, _ = init_services()
     if multi_agent_service:
         mappings = multi_agent_service.hindi_english_mappings
         
