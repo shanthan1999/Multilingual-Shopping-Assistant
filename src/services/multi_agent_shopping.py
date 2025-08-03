@@ -300,19 +300,33 @@ class MultiAgentShoppingSearch:
         return ""
     
     def _extract_price(self, content: str) -> str:
-        """Extract price information from content"""
+        """Extract price information from content using enhanced regex patterns"""
+        # Enhanced price patterns with more variations
         price_patterns = [
-            r'₹\s*(\d+(?:,\d+)*(?:\.\d{2})?)',
-            r'Rs\.?\s*(\d+(?:,\d+)*(?:\.\d{2})?)',
-            r'INR\s*(\d+(?:,\d+)*(?:\.\d{2})?)',
-            r'\$(\d+(?:,\d+)*(?:\.\d{2})?)',
-            r'(\d+(?:,\d+)*(?:\.\d{2})?)\s*(?:rupees?|rs)'
+            r'₹\s*(\d+(?:,\d+)*(?:\.\d{2})?)',  # ₹1,234.56
+            r'rs\.?\s*(\d+(?:,\d+)*(?:\.\d{2})?)',  # Rs. 1234
+            r'inr\s*(\d+(?:,\d+)*(?:\.\d{2})?)',  # INR 1234
+            r'price[:\s]*₹?\s*(\d+(?:,\d+)*(?:\.\d{2})?)',  # Price: ₹1234
+            r'cost[:\s]*₹?\s*(\d+(?:,\d+)*(?:\.\d{2})?)',  # Cost: 1234
+            r'(\d+(?:,\d+)*(?:\.\d{2})?)\s*(?:rupees?|rs\.?)',  # 1234 rupees
+            r'mrp[:\s]*₹?\s*(\d+(?:,\d+)*(?:\.\d{2})?)',  # MRP: ₹1234
+            r'offer[:\s]*₹?\s*(\d+(?:,\d+)*(?:\.\d{2})?)',  # Offer: ₹1234
+            r'sale[:\s]*₹?\s*(\d+(?:,\d+)*(?:\.\d{2})?)',  # Sale: ₹1234
+            r'deal[:\s]*₹?\s*(\d+(?:,\d+)*(?:\.\d{2})?)',  # Deal: ₹1234
+            r'only[:\s]*₹?\s*(\d+(?:,\d+)*(?:\.\d{2})?)',  # Only ₹1234
+            r'from[:\s]*₹?\s*(\d+(?:,\d+)*(?:\.\d{2})?)',  # From ₹1234
+            r'starting[:\s]*₹?\s*(\d+(?:,\d+)*(?:\.\d{2})?)',  # Starting ₹1234
+            r'\$(\d+(?:,\d+)*(?:\.\d{2})?)',  # $123.45
         ]
         
         for pattern in price_patterns:
             match = re.search(pattern, content, re.IGNORECASE)
             if match:
                 price = match.group(1)
+                # Clean up price formatting
+                price = price.replace(',', '')
+                if '.' not in price:
+                    price = f"{price}.00"
                 return f"₹{price}"
         
         return "Price not available"
@@ -330,42 +344,14 @@ class MultiAgentShoppingSearch:
             return "Unknown Store"
     
     def _extract_image_url(self, result: Dict) -> str:
-        """Extract product image URL from search result"""
+        """Extract product image URL from search result - now returns generic product images"""
         try:
-            # Check if there's a thumbnail in the result
-            if 'thumbnail' in result:
-                return result['thumbnail']
-            
-            # Try to extract from rich snippets or structured data
-            if 'rich_snippet' in result and 'top' in result['rich_snippet']:
-                rich_data = result['rich_snippet']['top']
-                if 'detected_extensions' in rich_data:
-                    extensions = rich_data['detected_extensions']
-                    for ext in extensions:
-                        if 'image' in ext.lower() or 'photo' in ext.lower():
-                            return ext
-            
-            # Generate a placeholder image based on the domain
-            domain = self._extract_domain(result.get('link', ''))
-            
-            # Use domain-specific logic for common e-commerce sites
-            if 'amazon' in domain.lower():
-                return "https://via.placeholder.com/150x150/FF9900/FFFFFF?text=Amazon"
-            elif 'flipkart' in domain.lower():
-                return "https://via.placeholder.com/150x150/047BD6/FFFFFF?text=Flipkart"
-            elif 'myntra' in domain.lower():
-                return "https://via.placeholder.com/150x150/FF3F6C/FFFFFF?text=Myntra"
-            elif 'bigbasket' in domain.lower():
-                return "https://via.placeholder.com/150x150/84C225/FFFFFF?text=BigBasket"
-            elif 'zepto' in domain.lower():
-                return "https://via.placeholder.com/150x150/6C5CE7/FFFFFF?text=Zepto"
-            elif 'blinkit' in domain.lower():
-                return "https://via.placeholder.com/150x150/F39C12/FFFFFF?text=Blinkit"
-            else:
-                return "https://via.placeholder.com/150x150/667eea/FFFFFF?text=Product"
+            # Instead of trying to extract actual images, return a generic product image
+            # This will be overridden by the streamlit app's generic image function
+            return "https://images.unsplash.com/photo-1560472354-b33ff0c44a43?w=150&h=150&fit=crop"
                 
         except Exception:
-            return "https://via.placeholder.com/150x150/667eea/FFFFFF?text=Product"
+            return "https://images.unsplash.com/photo-1560472354-b33ff0c44a43?w=150&h=150&fit=crop"
     
     def _format_results(self, results: List[Dict], original_query: str) -> List[Dict]:
         """Format search results for display"""

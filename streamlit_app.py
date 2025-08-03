@@ -8,6 +8,7 @@ import os
 import sys
 import hashlib
 import re # Added for price extraction
+import urllib.parse
 
 # Add the src directory to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
@@ -164,6 +165,236 @@ st.markdown("""
 if 'shopping_list' not in st.session_state:
     st.session_state.shopping_list = []
 
+# Enhanced product detail extraction functions
+def extract_product_details_with_regex(product_data):
+    """Enhanced product detail extraction using regex patterns"""
+    title = product_data.get('title', 'Product')
+    description = product_data.get('description', 'No description available')
+    combined_text = f"{title} {description}".lower()
+    
+    # Enhanced price extraction with multiple patterns
+    price_patterns = [
+        r'₹\s*(\d+(?:,\d+)*(?:\.\d{2})?)',  # ₹1,234.56
+        r'rs\.?\s*(\d+(?:,\d+)*(?:\.\d{2})?)',  # Rs. 1234
+        r'inr\s*(\d+(?:,\d+)*(?:\.\d{2})?)',  # INR 1234
+        r'price[:\s]*₹?\s*(\d+(?:,\d+)*(?:\.\d{2})?)',  # Price: ₹1234
+        r'cost[:\s]*₹?\s*(\d+(?:,\d+)*(?:\.\d{2})?)',  # Cost: 1234
+        r'(\d+(?:,\d+)*(?:\.\d{2})?)\s*(?:rupees?|rs\.?)',  # 1234 rupees
+        r'mrp[:\s]*₹?\s*(\d+(?:,\d+)*(?:\.\d{2})?)',  # MRP: ₹1234
+        r'offer[:\s]*₹?\s*(\d+(?:,\d+)*(?:\.\d{2})?)',  # Offer: ₹1234
+    ]
+    
+    extracted_price = "Price not available"
+    for pattern in price_patterns:
+        match = re.search(pattern, combined_text, re.IGNORECASE)
+        if match:
+            price_value = match.group(1)
+            extracted_price = f"₹{price_value}"
+            break
+    
+    # Extract discount information
+    discount_patterns = [
+        r'(\d+)%\s*off',
+        r'save\s*₹?\s*(\d+)',
+        r'discount[:\s]*(\d+)%',
+        r'(\d+)%\s*discount',
+        r'flat\s*(\d+)%\s*off'
+    ]
+    
+    discount_info = ""
+    for pattern in discount_patterns:
+        match = re.search(pattern, combined_text, re.IGNORECASE)
+        if match:
+            discount_info = f"🏷️ {match.group(0)}"
+            break
+    
+    # Extract rating information
+    rating_patterns = [
+        r'(\d+(?:\.\d+)?)\s*(?:star|stars|\*)',
+        r'rating[:\s]*(\d+(?:\.\d+)?)',
+        r'rated\s*(\d+(?:\.\d+)?)',
+        r'(\d+(?:\.\d+)?)/5',
+        r'(\d+(?:\.\d+)?)\s*out\s*of\s*5'
+    ]
+    
+    rating = ""
+    for pattern in rating_patterns:
+        match = re.search(pattern, combined_text, re.IGNORECASE)
+        if match:
+            rating_value = match.group(1)
+            rating = f"⭐ {rating_value}/5"
+            break
+    
+    # Extract delivery information
+    delivery_patterns = [
+        r'(\d+)\s*(?:min|minute)s?\s*delivery',
+        r'instant\s*delivery',
+        r'same\s*day\s*delivery',
+        r'next\s*day\s*delivery',
+        r'free\s*delivery',
+        r'express\s*delivery',
+        r'(\d+)\s*(?:day|days)\s*delivery',
+        r'delivery\s*in\s*(\d+)\s*(?:day|days|hour|hours)',
+        r'ships\s*in\s*(\d+)\s*(?:day|days)'
+    ]
+    
+    delivery_info = ""
+    for pattern in delivery_patterns:
+        match = re.search(pattern, combined_text, re.IGNORECASE)
+        if match:
+            delivery_info = f"🚚 {match.group(0).title()}"
+            break
+    
+    # Extract brand information
+    brand_patterns = [
+        r'brand[:\s]*([a-zA-Z]+)',
+        r'by\s+([a-zA-Z]+)',
+        r'from\s+([a-zA-Z]+)',
+        r'^([A-Z][a-zA-Z]+)\s+',  # Brand at start of title
+    ]
+    
+    brand = ""
+    for pattern in brand_patterns:
+        match = re.search(pattern, title, re.IGNORECASE)
+        if match:
+            brand_name = match.group(1)
+            if len(brand_name) > 2 and brand_name.lower() not in ['the', 'and', 'for', 'with']:
+                brand = f"🏷️ {brand_name}"
+                break
+    
+    # Extract size/quantity information
+    size_patterns = [
+        r'(\d+(?:\.\d+)?)\s*(?:kg|gm|gram|grams|ml|liter|litre|l)',
+        r'(\d+)\s*(?:piece|pieces|pcs|pack)',
+        r'size[:\s]*([a-zA-Z0-9]+)',
+        r'(\d+)\s*(?:inch|inches|cm|mm)',
+        r'(\d+(?:\.\d+)?)\s*(?:gb|tb|mb)'
+    ]
+    
+    size_info = ""
+    for pattern in size_patterns:
+        match = re.search(pattern, combined_text, re.IGNORECASE)
+        if match:
+            size_info = f"📏 {match.group(0)}"
+            break
+    
+    return {
+        'price': extracted_price,
+        'discount': discount_info,
+        'rating': rating,
+        'delivery': delivery_info,
+        'brand': brand,
+        'size': size_info
+    }
+
+def get_generic_product_image(query, product_title=""):
+    """Generate generic product images based on search query and product title"""
+    query_lower = query.lower()
+    title_lower = product_title.lower()
+    combined = f"{query_lower} {title_lower}"
+    
+    # Product category mappings to appropriate images
+    category_images = {
+        # Electronics
+        'mobile': 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=150&h=150&fit=crop',
+        'phone': 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=150&h=150&fit=crop',
+        'laptop': 'https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=150&h=150&fit=crop',
+        'computer': 'https://images.unsplash.com/photo-1547082299-de196ea013d6?w=150&h=150&fit=crop',
+        'headphone': 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=150&h=150&fit=crop',
+        'earphone': 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=150&h=150&fit=crop',
+        'charger': 'https://images.unsplash.com/photo-1583394838336-acd977736f90?w=150&h=150&fit=crop',
+        'tablet': 'https://images.unsplash.com/photo-1544244015-0df4b3ffc6b0?w=150&h=150&fit=crop',
+        'watch': 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=150&h=150&fit=crop',
+        'camera': 'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=150&h=150&fit=crop',
+        
+        # Vegetables
+        'tomato': 'https://images.unsplash.com/photo-1546470427-e26264be0b0d?w=150&h=150&fit=crop',
+        'tamatar': 'https://images.unsplash.com/photo-1546470427-e26264be0b0d?w=150&h=150&fit=crop',
+        'onion': 'https://images.unsplash.com/photo-1508747703725-719777637510?w=150&h=150&fit=crop',
+        'pyaaz': 'https://images.unsplash.com/photo-1508747703725-719777637510?w=150&h=150&fit=crop',
+        'potato': 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=150&h=150&fit=crop',
+        'aloo': 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=150&h=150&fit=crop',
+        'carrot': 'https://images.unsplash.com/photo-1445282768818-728615cc910a?w=150&h=150&fit=crop',
+        'gajar': 'https://images.unsplash.com/photo-1445282768818-728615cc910a?w=150&h=150&fit=crop',
+        'cucumber': 'https://images.unsplash.com/photo-1449300079323-02e209d9d3a6?w=150&h=150&fit=crop',
+        'kheera': 'https://images.unsplash.com/photo-1449300079323-02e209d9d3a6?w=150&h=150&fit=crop',
+        'spinach': 'https://images.unsplash.com/photo-1576045057995-568f588f82fb?w=150&h=150&fit=crop',
+        'palak': 'https://images.unsplash.com/photo-1576045057995-568f588f82fb?w=150&h=150&fit=crop',
+        
+        # Fruits
+        'apple': 'https://images.unsplash.com/photo-1560806887-1e4cd0b6cbd6?w=150&h=150&fit=crop',
+        'banana': 'https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?w=150&h=150&fit=crop',
+        'orange': 'https://images.unsplash.com/photo-1547514701-42782101795e?w=150&h=150&fit=crop',
+        'mango': 'https://images.unsplash.com/photo-1553279768-865429fa0078?w=150&h=150&fit=crop',
+        'grapes': 'https://images.unsplash.com/photo-1537640538966-79f369143f8f?w=150&h=150&fit=crop',
+        
+        # Dairy & Groceries
+        'milk': 'https://images.unsplash.com/photo-1550583724-b2692b85b150?w=150&h=150&fit=crop',
+        'doodh': 'https://images.unsplash.com/photo-1550583724-b2692b85b150?w=150&h=150&fit=crop',
+        'bread': 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=150&h=150&fit=crop',
+        'rice': 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=150&h=150&fit=crop',
+        'chawal': 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=150&h=150&fit=crop',
+        'oil': 'https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?w=150&h=150&fit=crop',
+        'sugar': 'https://images.unsplash.com/photo-1587735243615-c03f25aaff15?w=150&h=150&fit=crop',
+        'tea': 'https://images.unsplash.com/photo-1544787219-7f47ccb76574?w=150&h=150&fit=crop',
+        'chai': 'https://images.unsplash.com/photo-1544787219-7f47ccb76574?w=150&h=150&fit=crop',
+        'coffee': 'https://images.unsplash.com/photo-1447933601403-0c6688de566e?w=150&h=150&fit=crop',
+        
+        # Clothing
+        'shirt': 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=150&h=150&fit=crop',
+        'pant': 'https://images.unsplash.com/photo-1473966968600-fa801b869a1a?w=150&h=150&fit=crop',
+        'jeans': 'https://images.unsplash.com/photo-1542272604-787c3835535d?w=150&h=150&fit=crop',
+        'shoes': 'https://images.unsplash.com/photo-1549298916-b41d501d3772?w=150&h=150&fit=crop',
+        'bag': 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=150&h=150&fit=crop',
+        'dress': 'https://images.unsplash.com/photo-1595777457583-95e059d581b8?w=150&h=150&fit=crop',
+        
+        # Home & Kitchen
+        'plate': 'https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=150&h=150&fit=crop',
+        'cup': 'https://images.unsplash.com/photo-1544787219-7f47ccb76574?w=150&h=150&fit=crop',
+        'bottle': 'https://images.unsplash.com/photo-1523362628745-0c100150b504?w=150&h=150&fit=crop',
+        'chair': 'https://images.unsplash.com/photo-1506439773649-6e0eb8cfb237?w=150&h=150&fit=crop',
+        'table': 'https://images.unsplash.com/photo-1449247709967-d4461a6a6103?w=150&h=150&fit=crop',
+        
+        # Books & Stationery
+        'book': 'https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=150&h=150&fit=crop',
+        'pen': 'https://images.unsplash.com/photo-1455390582262-044cdead277a?w=150&h=150&fit=crop',
+        'notebook': 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=150&h=150&fit=crop',
+    }
+    
+    # Find matching category
+    for category, image_url in category_images.items():
+        if category in combined:
+            return image_url
+    
+    # Fallback to a generic product image
+    return 'https://images.unsplash.com/photo-1560472354-b33ff0c44a43?w=150&h=150&fit=crop'
+
+def enhance_product_data(product, search_query):
+    """Enhance product data with extracted details and generic images"""
+    # Extract enhanced details
+    details = extract_product_details_with_regex(product)
+    
+    # Get generic product image
+    generic_image = get_generic_product_image(search_query, product.get('title', ''))
+    
+    # Enhanced product data
+    enhanced_product = {
+        'title': product.get('title', 'Product'),
+        'description': product.get('description', 'No description available'),
+        'url': product.get('url', ''),
+        'source': product.get('source', 'Unknown Store'),
+        'price': details['price'],
+        'image': generic_image,  # Use generic image instead of original
+        'score': product.get('score', 0),
+        'discount': details['discount'],
+        'rating': details['rating'],
+        'delivery': details['delivery'],
+        'brand': details['brand'],
+        'size': details['size']
+    }
+    
+    return enhanced_product
+
 def main():
     # Header
     st.markdown("""
@@ -279,8 +510,11 @@ def show_product_search(multi_agent_service):
                 if products:
                     st.success(f"Found {len(products)} products")
                     
+                    # Enhance products with regex extraction and generic images
+                    enhanced_products = [enhance_product_data(product, search_query) for product in products]
+                    
                     # Display products in a clean grid
-                    for i, product in enumerate(products):
+                    for i, product in enumerate(enhanced_products):
                         st.markdown("""
                         <div class="product-card">
                         """, unsafe_allow_html=True)
@@ -288,31 +522,50 @@ def show_product_search(multi_agent_service):
                         col1, col2, col3, col4 = st.columns([1, 3, 1, 1])
                         
                         with col1:
-                            # Product image
-                            image_url = product.get('image', 'https://via.placeholder.com/150x150/667eea/FFFFFF?text=Product')
+                            # Product image (now using generic images)
+                            image_url = product.get('image')
                             try:
                                 st.image(image_url, width=100)
                             except:
-                                st.image('https://via.placeholder.com/150x150/667eea/FFFFFF?text=Product', width=100)
+                                st.image('https://images.unsplash.com/photo-1560472354-b33ff0c44a43?w=150&h=150&fit=crop', width=100)
                         
                         with col2:
                             st.markdown(f"**{product.get('title', 'Product')[:60]}**")
+                            
+                            # Enhanced product details
+                            if product.get('brand'):
+                                st.caption(product['brand'])
+                            if product.get('size'):
+                                st.caption(product['size'])
+                            
                             description = product.get('description', 'No description available')
-                            if len(description) > 100:
-                                description = description[:100] + "..."
+                            if len(description) > 80:
+                                description = description[:80] + "..."
                             st.write(description)
                             
-                            # Source info
+                            # Source info with delivery
                             source = product.get('source', 'Unknown Store')
-                            st.caption(f"📍 {source}")
+                            delivery = product.get('delivery', '')
+                            if delivery:
+                                st.caption(f"📍 {source} • {delivery}")
+                            else:
+                                st.caption(f"📍 {source}")
                         
                         with col3:
                             price = product.get('price', 'Price not available')
                             st.markdown(f'<div class="price-tag">{price}</div>', unsafe_allow_html=True)
                             
-                            # Relevance score
-                            score = product.get('score', 0)
-                            st.caption(f"⭐ {score:.1f}/10")
+                            # Show discount if available
+                            if product.get('discount'):
+                                st.caption(product['discount'])
+                            
+                            # Show rating if available
+                            if product.get('rating'):
+                                st.caption(product['rating'])
+                            else:
+                                # Relevance score as fallback
+                                score = product.get('score', 0)
+                                st.caption(f"⭐ {score:.1f}/10")
                         
                         with col4:
                             # Buy button
@@ -370,20 +623,35 @@ def show_shopping_list():
             col1, col2, col3, col4 = st.columns([1, 3, 1, 1])
             
             with col1:
-                # Product image
-                image_url = item.get('image', 'https://via.placeholder.com/150x150/667eea/FFFFFF?text=Product')
+                # Product image (enhanced with generic images)
+                image_url = item.get('image')
+                if not image_url or 'placeholder' in image_url:
+                    # Generate generic image based on product title
+                    image_url = get_generic_product_image("", item.get('title', ''))
                 try:
                     st.image(image_url, width=100)
                 except:
-                    st.image('https://via.placeholder.com/150x150/667eea/FFFFFF?text=Product', width=100)
+                    st.image('https://images.unsplash.com/photo-1560472354-b33ff0c44a43?w=150&h=150&fit=crop', width=100)
             
             with col2:
                 st.markdown(f"**{item['title'][:60]}**")
+                
+                # Enhanced product details
+                if item.get('brand'):
+                    st.caption(item['brand'])
+                if item.get('size'):
+                    st.caption(item['size'])
+                
                 description = item.get('description', 'No description available')
                 if len(description) > 80:
                     description = description[:80] + "..."
                 st.write(description)
-                st.caption(f"📍 {item['source']}")
+                
+                # Source info with delivery
+                source_info = f"📍 {item['source']}"
+                if item.get('delivery'):
+                    source_info += f" • {item['delivery']}"
+                st.caption(source_info)
                 
                 # Added date
                 if item.get('added_at'):
@@ -395,6 +663,14 @@ def show_shopping_list():
             
             with col3:
                 st.markdown(f'<div class="price-tag">{item["price"]}</div>', unsafe_allow_html=True)
+                
+                # Show discount if available
+                if item.get('discount'):
+                    st.caption(item['discount'])
+                
+                # Show rating if available
+                if item.get('rating'):
+                    st.caption(item['rating'])
             
             with col4:
                 # Buy button
@@ -428,20 +704,25 @@ def show_shopping_list():
                         st.switch_page("streamlit_app.py")
 
 def add_to_shopping_list(product):
-    """Add product to shopping list"""
+    """Add product to shopping list with enhanced details"""
     # Check if already in list
     for item in st.session_state.shopping_list:
         if item.get('url') == product.get('url') and item.get('title') == product.get('title'):
             return  # Already in list
     
-    # Add to list
+    # Add to list with enhanced details
     list_item = {
         'title': product.get('title', 'Product'),
         'description': product.get('description', 'No description available'),
         'price': product.get('price', 'N/A'),
         'url': product.get('url', ''),
         'source': product.get('source', 'Unknown'),
-        'image': product.get('image', 'https://via.placeholder.com/150x150/667eea/FFFFFF?text=Product'),
+        'image': product.get('image', get_generic_product_image("", product.get('title', ''))),
+        'discount': product.get('discount', ''),
+        'rating': product.get('rating', ''),
+        'delivery': product.get('delivery', ''),
+        'brand': product.get('brand', ''),
+        'size': product.get('size', ''),
         'added_at': datetime.now().isoformat()
     }
     
